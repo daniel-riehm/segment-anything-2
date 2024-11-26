@@ -96,10 +96,10 @@ class MaskDecoder(nn.Module):
             iou_head_depth,
             sigmoid_output=iou_prediction_use_sigmoid,
         )
-        if self.pred_obj_scores:
-            self.pred_obj_score_head = nn.Linear(transformer_dim, 1)
-            if pred_obj_scores_mlp:
-                self.pred_obj_score_head = MLP(transformer_dim, transformer_dim, 1, 3)
+        # if self.pred_obj_scores:
+        #     self.pred_obj_score_head = nn.Linear(transformer_dim, 1)
+        #     if pred_obj_scores_mlp:
+        #         self.pred_obj_score_head = MLP(transformer_dim, transformer_dim, 1, 3)
 
         # When outputting a single mask, optionally we can dynamically fall back to the best
         # multimask output token if the single mask output token gives low stability scores.
@@ -215,14 +215,27 @@ class MaskDecoder(nn.Module):
         mask_tokens_out = hs[:, s + 1 : (s + 1 + self.num_mask_tokens), :]
 
         # Upscale mask embeddings and predict masks using the mask tokens
-        src = src.transpose(1, 2).view(b, c, h, w)
+        src = src.transpose(1, 2).view(b, c, h, w).contiguous()
         if not self.use_high_res_features:
             upscaled_embedding = self.output_upscaling(src)
         else:
             dc1, ln1, act1, dc2, act2 = self.output_upscaling
+            def unwrapped_conv2d(weight: torch.Tensor, bias: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+                w = weight
+                x = x.permute(1, 2, 0).unsqueeze(3).contiguous()
+                x0 = torch.stack([torch.matmul(w[0, 0].contiguous(), x).squeeze(3), torch.matmul(w[0, 1].contiguous(), x).squeeze(3)], dim=2).flatten(1, 2)
+                x1 = torch.stack([torch.matmul(w[1, 0].contiguous(), x).squeeze(3), torch.matmul(w[1, 1].contiguous(), x).squeeze(3)], dim=2).flatten(1, 2)
+                x = torch.stack([x0, x1], dim=1).flatten(0, 1)
+                x += bias
+                x = x.permute(2, 0, 1).contiguous()
+                return x
             feat_s0, feat_s1 = high_res_features
-            upscaled_embedding = act1(ln1(dc1(src) + feat_s1))
-            upscaled_embedding = act2(dc2(upscaled_embedding) + feat_s0)
+            deconved = unwrapped_conv2d(self.custom_deconv0_weight, self.custom_deconv0_bias, src[0]).unsqueeze(0)
+            # print(torch.max(torch.abs(dc1(src) - deconved)), dc1(src).shape, deconved.shape)
+            upscaled_embedding = act1(ln1(deconved + feat_s1))
+            deconved = unwrapped_conv2d(self.custom_deconv1_weight, self.custom_deconv1_bias, upscaled_embedding[0]).unsqueeze(0)
+            # print(torch.max(torch.abs(dc2(upscaled_embedding) - deconved)), dc2(upscaled_embedding).shape, deconved.shape)
+            upscaled_embedding = act2(deconved + feat_s0)
 
         hyper_in_list: List[torch.Tensor] = []
         for i in range(self.num_mask_tokens):
@@ -235,12 +248,12 @@ class MaskDecoder(nn.Module):
 
         # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)
-        if self.pred_obj_scores:
-            assert s == 1
-            object_score_logits = self.pred_obj_score_head(hs[:, 0, :])
-        else:
-            # Obj scores logits - default to 10.0, i.e. assuming the object is present, sigmoid(10)=1
-            object_score_logits = 10.0 * iou_pred.new_ones(iou_pred.shape[0], 1)
+        # if self.pred_obj_scores:
+        #     assert s == 1
+        #     object_score_logits = self.pred_obj_score_head(hs[:, 0, :])
+        # else:
+        #     # Obj scores logits - default to 10.0, i.e. assuming the object is present, sigmoid(10)=1
+        object_score_logits = 10.0 * iou_pred.new_ones(iou_pred.shape[0], 1)
 
         return masks, iou_pred, mask_tokens_out, object_score_logits
 

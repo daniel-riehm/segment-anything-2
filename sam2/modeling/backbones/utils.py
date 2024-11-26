@@ -30,12 +30,13 @@ def window_partition(x, window_size):
     if pad_h > 0 or pad_w > 0:
         x = F.pad(x, (0, 0, 0, pad_w, 0, pad_h))
     Hp, Wp = H + pad_h, W + pad_w
+    size_h, size_w = (Hp // window_size), (Wp // window_size)
 
-    x = x.view(B, Hp // window_size, window_size, Wp // window_size, window_size, C)
-    windows = (
-        x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size, window_size, C)
-    )
-    return windows, (Hp, Wp)
+    x = x.reshape(B * Hp // window_size, window_size, Wp // window_size, window_size, C)
+    x = x.permute(0, 2, 1, 3, 4)
+    x = x.flatten(0, 1)
+    x = x.contiguous()
+    return x, (Hp, Wp)
 
 
 def window_unpartition(windows, window_size, pad_hw, hw):
@@ -52,10 +53,15 @@ def window_unpartition(windows, window_size, pad_hw, hw):
     Hp, Wp = pad_hw
     H, W = hw
     B = windows.shape[0] // (Hp * Wp // window_size // window_size)
-    x = windows.view(
-        B, Hp // window_size, Wp // window_size, window_size, window_size, -1
+    C = windows.numel() // (B * (Hp // window_size) * (Wp // window_size) * window_size * window_size)
+    x = windows.reshape(
+        B * Hp // window_size, Wp // window_size, window_size, window_size, C
     )
-    x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, Hp, Wp, -1)
+    x = x.permute(0, 2, 1, 3, 4)
+    x = x.flatten(2, 3)
+    x = x.reshape(B, Hp // window_size, window_size, Wp // window_size * window_size, C)
+    x = x.flatten(1, 2)
+    x = x.contiguous()
 
     if Hp > H or Wp > W:
         x = x[:, :H, :W, :].contiguous()

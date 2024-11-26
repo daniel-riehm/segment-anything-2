@@ -110,7 +110,7 @@ class FpnNeck(nn.Module):
         n = len(self.convs) - 1
         for i in range(n, -1, -1):
             x = xs[i]
-            lateral_features = self.convs[n - i](x)
+            lateral_features = self.convs[n - i](x).contiguous()
             if i in self.fpn_top_down_levels and prev_features is not None:
                 top_down_features = F.interpolate(
                     prev_features,
@@ -120,7 +120,7 @@ class FpnNeck(nn.Module):
                         None if self.fpn_interp_model == "nearest" else False
                     ),
                     antialias=False,
-                )
+                ).contiguous()
                 prev_features = lateral_features + top_down_features
                 if self.fuse_type == "avg":
                     prev_features /= 2

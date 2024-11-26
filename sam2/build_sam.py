@@ -119,11 +119,19 @@ def build_sam2_video_predictor_hf(model_id, **kwargs):
 def _load_checkpoint(model, ckpt_path):
     if ckpt_path is not None:
         sd = torch.load(ckpt_path, map_location="cpu")["model"]
-        missing_keys, unexpected_keys = model.load_state_dict(sd)
-        if missing_keys:
-            logging.error(missing_keys)
-            raise RuntimeError()
-        if unexpected_keys:
-            logging.error(unexpected_keys)
-            raise RuntimeError()
+        missing_keys, unexpected_keys = model.load_state_dict(sd, strict=False)
+        with torch.no_grad():
+            model.image_encoder.trunk.pos_embed_precomputed = model.image_encoder.trunk._get_pos_embed((256, 256))
+            model.sam_prompt_encoder.embed0 = model.sam_prompt_encoder.point_embeddings[1].weight[0]
+            model.sam_prompt_encoder.embed1 = model.sam_prompt_encoder.not_a_point_embed.weight[0]
+            model.sam_mask_decoder.custom_deconv0_weight = model.sam_mask_decoder.output_upscaling[0].weight.permute(2, 3, 1, 0).contiguous()
+            model.sam_mask_decoder.custom_deconv0_bias = model.sam_mask_decoder.output_upscaling[0].bias
+            model.sam_mask_decoder.custom_deconv1_weight = model.sam_mask_decoder.output_upscaling[3].weight.permute(2, 3, 1, 0).contiguous()
+            model.sam_mask_decoder.custom_deconv1_bias = model.sam_mask_decoder.output_upscaling[3].bias
+        # if missing_keys:
+        #     logging.error(missing_keys)
+        #     raise RuntimeError()
+        # if unexpected_keys:
+        #     logging.error(unexpected_keys)
+        #     raise RuntimeError()
         logging.info("Loaded checkpoint sucessfully")

@@ -92,12 +92,16 @@ class PromptEncoder(nn.Module):
         point_embedding = self.pe_layer.forward_with_coords(
             points, self.input_image_size
         )
-        point_embedding[labels == -1] = 0.0
-        point_embedding[labels == -1] += self.not_a_point_embed.weight
-        point_embedding[labels == 0] += self.point_embeddings[0].weight
-        point_embedding[labels == 1] += self.point_embeddings[1].weight
-        point_embedding[labels == 2] += self.point_embeddings[2].weight
-        point_embedding[labels == 3] += self.point_embeddings[3].weight
+
+        # ONE POINT HARDCODING HACK
+        point_embedding = torch.stack([self.embed0 + point_embedding[0, 0], self.embed1]).unsqueeze(0)
+
+        # point_embedding[labels == -1] = 0.0
+        # point_embedding[labels == -1] += self.not_a_point_embed.weight
+        # point_embedding[labels == 0] += self.point_embeddings[0].weight
+        # point_embedding[labels == 1] += self.point_embeddings[1].weight
+        # point_embedding[labels == 2] += self.point_embeddings[2].weight
+        # point_embedding[labels == 3] += self.point_embeddings[3].weight
         return point_embedding
 
     def _embed_boxes(self, boxes: torch.Tensor) -> torch.Tensor:

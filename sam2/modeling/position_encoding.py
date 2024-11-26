@@ -107,7 +107,7 @@ class PositionEmbeddingSine(nn.Module):
         pos_y = torch.stack(
             (pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()), dim=4
         ).flatten(3)
-        pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
+        pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2).contiguous()
         self.cache[cache_key] = pos[0]
         return pos
 
@@ -130,8 +130,9 @@ class PositionEmbeddingRandom(nn.Module):
         """Positionally encode points that are normalized to [0,1]."""
         # assuming coords are in [0, 1]^2 square and have d_1 x ... x d_n x 2 shape
         coords = 2 * coords - 1
-        coords = coords @ self.positional_encoding_gaussian_matrix
+        coords = torch.matmul(coords, self.positional_encoding_gaussian_matrix.unsqueeze(0))
         coords = 2 * np.pi * coords
+        coords = coords.contiguous()
         # outputs d_1 x ... x d_n x C shape
         return torch.cat([torch.sin(coords), torch.cos(coords)], dim=-1)
 
@@ -146,16 +147,13 @@ class PositionEmbeddingRandom(nn.Module):
         x_embed = x_embed / w
 
         pe = self._pe_encoding(torch.stack([x_embed, y_embed], dim=-1))
-        return pe.permute(2, 0, 1)  # C x H x W
+        return pe.permute(2, 0, 1).contiguous()  # C x H x W
 
     def forward_with_coords(
         self, coords_input: torch.Tensor, image_size: Tuple[int, int]
     ) -> torch.Tensor:
         """Positionally encode points that are not normalized to [0,1]."""
-        coords = coords_input.clone()
-        coords[:, :, 0] = coords[:, :, 0] / image_size[1]
-        coords[:, :, 1] = coords[:, :, 1] / image_size[0]
-        return self._pe_encoding(coords)  # B x N x C
+        return self._pe_encoding(coords_input / 1024)  # B x N x C
 
 
 # Rotary Positional Encoding, adapted from:

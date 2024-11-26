@@ -56,7 +56,8 @@ class MultiScaleAttention(nn.Module):
         # qkv with shape (B, H * W, 3, nHead, C)
         qkv = self.qkv(x).reshape(B, H * W, 3, self.num_heads, -1)
         # q, k, v with shape (B, H * W, nheads, C)
-        q, k, v = torch.unbind(qkv, 2)
+        # q, k, v = torch.unbind(qkv, 2)
+        q, k, v = (torch.select_copy(qkv, 2, i) for i in range(3))
 
         # Q pooling (for downsample at stage changes)
         if self.q_pool:
@@ -269,7 +270,7 @@ class Hiera(nn.Module):
         pos_embed = pos_embed + window_embed.tile(
             [x // y for x, y in zip(pos_embed.shape, window_embed.shape)]
         )
-        pos_embed = pos_embed.permute(0, 2, 3, 1)
+        pos_embed = pos_embed.permute(0, 2, 3, 1).contiguous()
         return pos_embed
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
@@ -277,7 +278,8 @@ class Hiera(nn.Module):
         # x: (B, H, W, C)
 
         # Add pos embed
-        x = x + self._get_pos_embed(x.shape[1:3])
+        # x = x + self._get_pos_embed(x.shape[1:3])
+        x = x + self.pos_embed_precomputed
 
         outputs = []
         for i, blk in enumerate(self.blocks):
